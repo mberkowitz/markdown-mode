@@ -74,10 +74,6 @@
 (defvar markdown-reference-label-history nil
   "History of used reference labels.")
 
-;;FIX: use symbol to select back end, eww.el or impatient.el
-(defvar markdown-live-preview-mode nil
-  "Indicator variable for live-preview minor mode. Non-nil means active.")
-
 (defvar markdown-gfm-language-history nil
   "History list of languages used in the current buffer in GFM code blocks.")
 
