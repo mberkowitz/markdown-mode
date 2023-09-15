@@ -62,7 +62,7 @@
 
 ;;; Constants =================================================================
 
-(defconst markdown-mode-version "2.7-alpha"
+(defconst markdown-mode-version "2.7-MB"
   "Markdown mode version number.")
 
 (defconst markdown-output-buffer-name "*markdown-output*"
@@ -74,8 +74,9 @@
 (defvar markdown-reference-label-history nil
   "History of used reference labels.")
 
+;;FIX: use symbol to select back end, eww.el or impatient.el
 (defvar markdown-live-preview-mode nil
-  "Sentinel variable for command `markdown-live-preview-mode'.")
+  "Indicator variable for live-preview minor mode. Non-nil means active.")
 
 (defvar markdown-gfm-language-history nil
   "History list of languages used in the current buffer in GFM code blocks.")
@@ -519,6 +520,7 @@ If this value is \\='any and `display-buffer-alist' is set then
                  (const :tag "Below (horizontal)" below))
   :package-version '(markdown-mode . "2.2"))
 
+;; FIX: replace by a symbol 'eww or 'impatient, to select back-end for live preview,
 (defcustom markdown-live-preview-window-function
   #'markdown-live-preview-window-eww
   "Function to display preview of Markdown output within Emacs.
@@ -7784,132 +7786,6 @@ current filename, but with the extension removed and replaced with .html."
   (interactive)
   (browse-url-of-file (markdown-export)))
 
-(defvar-local markdown-live-preview-buffer nil
-  "Buffer used to preview markdown output in `markdown-live-preview-export'.")
-
-(defvar-local markdown-live-preview-source-buffer nil
-  "Source buffer from which current buffer was generated.
-This is the inverse of `markdown-live-preview-buffer'.")
-
-(defvar markdown-live-preview-currently-exporting nil)
-
-(defun markdown-live-preview-get-filename ()
-  "Standardize the filename exported by `markdown-live-preview-export'."
-  (markdown-export-file-name ".html"))
-
-(defun markdown-live-preview-window-eww (file)
-  "Preview FILE with eww.
-To be used with `markdown-live-preview-window-function'."
-  (when (and (bound-and-true-p eww-auto-rename-buffer)
-             markdown-live-preview-buffer)
-    (kill-buffer markdown-live-preview-buffer))
-  (eww-open-file file)
-  ;; #737 if `eww-auto-rename-buffer' is non-nil, the buffer name is not  "*eww*"
-  ;; Try to find the buffer whose name ends with "eww*"
-  (if (bound-and-true-p eww-auto-rename-buffer)
-      (cl-loop for buf in (buffer-list)
-               when (string-match-p "eww\\*\\'" (buffer-name buf))
-               return buf)
-    (get-buffer "*eww*")))
-
-(defun markdown-visual-lines-between-points (beg end)
-  (save-excursion
-    (goto-char beg)
-    (cl-loop with count = 0
-             while (progn (end-of-visual-line)
-                          (and (< (point) end) (line-move-visual 1 t)))
-             do (cl-incf count)
-             finally return count)))
-
-(defun markdown-live-preview-window-serialize (buf)
-  "Get window point and scroll data for all windows displaying BUF."
-  (when (buffer-live-p buf)
-    (with-current-buffer buf
-      (mapcar
-       (lambda (win)
-         (with-selected-window win
-           (let* ((start (window-start))
-                  (pt (window-point))
-                  (pt-or-sym (cond ((= pt (point-min)) 'min)
-                                   ((= pt (point-max)) 'max)
-                                   (t pt)))
-                  (diff (markdown-visual-lines-between-points
-                         start pt)))
-             (list win pt-or-sym diff))))
-       (get-buffer-window-list buf)))))
-
-(defun markdown-get-point-back-lines (pt num-lines)
-  (save-excursion
-    (goto-char pt)
-    (line-move-visual (- num-lines) t)
-    ;; in testing, can occasionally overshoot the number of lines to traverse
-    (let ((actual-num-lines (markdown-visual-lines-between-points (point) pt)))
-      (when (> actual-num-lines num-lines)
-        (line-move-visual (- actual-num-lines num-lines) t)))
-    (point)))
-
-(defun markdown-live-preview-window-deserialize (window-posns)
-  "Apply window point and scroll data from WINDOW-POSNS.
-WINDOW-POSNS is provided by `markdown-live-preview-window-serialize'."
-  (cl-destructuring-bind (win pt-or-sym diff) window-posns
-    (when (window-live-p win)
-      (with-current-buffer markdown-live-preview-buffer
-        (set-window-buffer win (current-buffer))
-        (cl-destructuring-bind (actual-pt actual-diff)
-            (cl-case pt-or-sym
-              (min (list (point-min) 0))
-              (max (list (point-max) diff))
-              (t   (list pt-or-sym diff)))
-          (set-window-start
-           win (markdown-get-point-back-lines actual-pt actual-diff))
-          (set-window-point win actual-pt))))))
-
-(defun markdown-live-preview-export ()
-  "Export to XHTML using `markdown-export'.
-Browse the resulting file within Emacs using
-`markdown-live-preview-window-function' Return the buffer
-displaying the rendered output."
-  (interactive)
-  (let ((filename (markdown-live-preview-get-filename)))
-    (when filename
-      (let* ((markdown-live-preview-currently-exporting t)
-             (cur-buf (current-buffer))
-             (export-file (markdown-export filename))
-             ;; get positions in all windows currently displaying output buffer
-             (window-data
-              (markdown-live-preview-window-serialize
-               markdown-live-preview-buffer)))
-        (save-window-excursion
-          (let ((output-buffer
-                 (funcall markdown-live-preview-window-function export-file)))
-            (with-current-buffer output-buffer
-              (setq markdown-live-preview-source-buffer cur-buf)
-              (add-hook 'kill-buffer-hook
-                        #'markdown-live-preview-remove-on-kill t t))
-            (with-current-buffer cur-buf
-              (setq markdown-live-preview-buffer output-buffer))))
-        (with-current-buffer cur-buf
-          ;; reset all windows displaying output buffer to where they were,
-          ;; now with the new output
-          (mapc #'markdown-live-preview-window-deserialize window-data)
-          ;; delete html editing buffer
-          (let ((buf (get-file-buffer export-file))) (when buf (kill-buffer buf)))
-          (when (and export-file (file-exists-p export-file)
-                     (eq markdown-live-preview-delete-export
-                         'delete-on-export))
-            (delete-file export-file))
-          markdown-live-preview-buffer)))))
-
-(defun markdown-live-preview-remove ()
-  (when (buffer-live-p markdown-live-preview-buffer)
-    (kill-buffer markdown-live-preview-buffer))
-  (setq markdown-live-preview-buffer nil)
-  ;; if set to 'delete-on-export, the output has already been deleted
-  (when (eq markdown-live-preview-delete-export 'delete-on-destroy)
-    (let ((outfile-name (markdown-live-preview-get-filename)))
-      (when (and outfile-name (file-exists-p outfile-name))
-        (delete-file outfile-name)))))
-
 (defun markdown-get-other-window ()
   "Find another window to display preview or output content."
   (cond
@@ -7927,42 +7803,6 @@ displaying the rendered output."
           (window (markdown-get-other-window)))
       (set-window-buffer window buf)
       (set-buffer cur-buf))))
-
-(defun markdown-live-preview-if-markdown ()
-  (when (and (derived-mode-p 'markdown-mode)
-             markdown-live-preview-mode)
-    (unless markdown-live-preview-currently-exporting
-      (if (buffer-live-p markdown-live-preview-buffer)
-          (markdown-live-preview-export)
-        (markdown-display-buffer-other-window
-         (markdown-live-preview-export))))))
-
-(defun markdown-live-preview-remove-on-kill ()
-  (cond ((and (derived-mode-p 'markdown-mode)
-              markdown-live-preview-mode)
-         (markdown-live-preview-remove))
-        (markdown-live-preview-source-buffer
-         (with-current-buffer markdown-live-preview-source-buffer
-           (setq markdown-live-preview-buffer nil))
-         (setq markdown-live-preview-source-buffer nil))))
-
-(defun markdown-live-preview-switch-to-output ()
-  "Turn on `markdown-live-preview-mode' and switch to output buffer.
-The output buffer is opened in another window."
-  (interactive)
-  (if markdown-live-preview-mode
-      (markdown-display-buffer-other-window (markdown-live-preview-export)))
-  (markdown-live-preview-mode))
-
-(defun markdown-live-preview-re-export ()
-  "Re-export the current live previewed content.
-If the current buffer is a buffer displaying the exported version of a
-`markdown-live-preview-mode' buffer, call `markdown-live-preview-export' and
-update this buffer's contents."
-  (interactive)
-  (when markdown-live-preview-source-buffer
-    (with-current-buffer markdown-live-preview-source-buffer
-      (markdown-live-preview-export))))
 
 (defun markdown-open ()
   "Open file for the current buffer with `markdown-open-command'."
@@ -10205,9 +10045,9 @@ rows and columns and the column alignment."
     (add-hook 'window-configuration-change-hook
               #'markdown-marginalize-update-current nil t))
 
-  ;; add live preview export hook
-  (add-hook 'after-save-hook #'markdown-live-preview-if-markdown t t)
-  (add-hook 'kill-buffer-hook #'markdown-live-preview-remove-on-kill t t)
+  ;; add hooks for live-preview mode
+  (add-hook 'after-save-hook #'markdown-live-preview-after-save-hook t t)
+  (add-hook 'kill-buffer-hook #'markdown-live-preview-kill-buffer-hook t t))
 
   ;; Add a custom keymap for `visual-line-mode' so that activating
   ;; this minor mode does not override markdown-mode's keybindings.
@@ -10316,6 +10156,8 @@ rows and columns and the column alignment."
 
 ;;; Live Preview Mode  ========================================================
 ;;;###autoload
+
+;; FIX: factor-put eww-specific stuff
 (define-minor-mode markdown-live-preview-mode
   "Toggle native previewing on save for a specific markdown file."
   :lighter " MD-Preview"
@@ -10325,6 +10167,174 @@ rows and columns and the column alignment."
         (markdown-live-preview-mode -1)
         (user-error "Buffer %s does not visit a file" (current-buffer)))
     (markdown-live-preview-remove)))
+
+(defvar-local markdown-live-preview-buffer nil
+  "Buffer used to preview markdown output in `markdown-live-preview-export'.")
+
+(defvar-local markdown-live-preview-source-buffer nil
+  "Source buffer from which current buffer was generated.
+This is the inverse of `markdown-live-preview-buffer'.")
+
+(defvar markdown-live-preview-currently-exporting nil)
+
+(defun markdown-live-preview-get-filename ()
+  "Standardize the filename exported by `markdown-live-preview-export'."
+  (markdown-export-file-name ".html"))
+
+; called by serialize/deserialize
+(defun markdown-visual-lines-between-points (beg end)
+  (save-excursion
+    (goto-char beg)
+    (cl-loop with count = 0
+             while (progn (end-of-visual-line)
+                          (and (< (point) end) (line-move-visual 1 t)))
+             do (cl-incf count)
+             finally return count)))
+
+; called by serialize/deserialize
+(defun markdown-get-point-back-lines (pt num-lines)
+  (save-excursion
+    (goto-char pt)
+    (line-move-visual (- num-lines) t)
+    ;; in testing, can occasionally overshoot the number of lines to traverse
+    (let ((actual-num-lines (markdown-visual-lines-between-points (point) pt)))
+      (when (> actual-num-lines num-lines)
+        (line-move-visual (- actual-num-lines num-lines) t)))
+    (point)))
+
+;; called by markdown-live-preview-export
+(defun markdown-live-preview-window-serialize (buf)
+  "Get window point and scroll data for all windows displaying BUF."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (mapcar
+       (lambda (win)
+         (with-selected-window win
+           (let* ((start (window-start))
+                  (pt (window-point))
+                  (pt-or-sym (cond ((= pt (point-min)) 'min)
+                                   ((= pt (point-max)) 'max)
+                                   (t pt)))
+                  (diff (markdown-visual-lines-between-points
+                         start pt)))
+             (list win pt-or-sym diff))))
+       (get-buffer-window-list buf)))))
+
+;; called by markdown-live-preview-export
+(defun markdown-live-preview-window-deserialize (window-posns)
+  "Apply window point and scroll data from WINDOW-POSNS.
+WINDOW-POSNS is provided by `markdown-live-preview-window-serialize'."
+  (cl-destructuring-bind (win pt-or-sym diff) window-posns
+    (when (window-live-p win)
+      (with-current-buffer markdown-live-preview-buffer
+        (set-window-buffer win (current-buffer))
+        (cl-destructuring-bind (actual-pt actual-diff)
+            (cl-case pt-or-sym
+              (min (list (point-min) 0))
+              (max (list (point-max) diff))
+              (t   (list pt-or-sym diff)))
+          (set-window-start
+           win (markdown-get-point-back-lines actual-pt actual-diff))
+          (set-window-point win actual-pt))))))
+
+(defun markdown-live-preview-window-eww (file)
+  "Preview FILE with eww, returning preview buffer.
+To be used with `markdown-live-preview-window-function.
+Called from markdown-live-preview-export."
+  (when (and (bound-and-true-p eww-auto-rename-buffer)
+             markdown-live-preview-buffer)
+    (kill-buffer markdown-live-preview-buffer))
+  (eww-open-file file)
+  ;; #737 if `eww-auto-rename-buffer' is non-nil, the buffer name is not  "*eww*"
+  ;; Try to find the buffer whose name ends with "eww*"
+  (if (bound-and-true-p eww-auto-rename-buffer)
+      (cl-loop for buf in (buffer-list)
+               when (string-match-p "eww\\*\\'" (buffer-name buf))
+               return buf)
+    (get-buffer "*eww*")))
+
+;;FIX generalize. Split out eww-specific stuff.
+(defun markdown-live-preview-export ()
+  "Export to XHTML using `markdown-export'.
+ Browse the resulting file within Emacs using
+`markdown-live-preview-window-function'.
+Return the buffer displaying the rendered output."
+  (interactive)
+  (let ((filename (markdown-live-preview-get-filename)))
+    (when filename
+      (let* ((markdown-live-preview-currently-exporting t)
+             (cur-buf (current-buffer))
+             (export-file (markdown-export filename))
+             ;; get positions in all windows currently displaying output buffer
+             (window-data
+              (markdown-live-preview-window-serialize
+               markdown-live-preview-buffer)))
+        (save-window-excursion
+          (let ((output-buffer
+                 (funcall markdown-live-preview-window-function export-file)))
+            (with-current-buffer output-buffer
+              (setq markdown-live-preview-source-buffer cur-buf)
+              (add-hook 'kill-buffer-hook
+                        #'markdown-live-preview-kill-buffer-hook t t))
+            (with-current-buffer cur-buf
+              (setq markdown-live-preview-buffer output-buffer))))
+        (with-current-buffer cur-buf
+          ;; reset all windows displaying output buffer to where they were,
+          ;; now with the new output
+          (mapc #'markdown-live-preview-window-deserialize window-data)
+          ;; delete html editing buffer
+          (let ((buf (get-file-buffer export-file))) (when buf (kill-buffer buf)))
+          (when (and export-file (file-exists-p export-file)
+                     (eq markdown-live-preview-delete-export
+                         'delete-on-export))
+            (delete-file export-file))
+          markdown-live-preview-buffer)))))
+
+(defun markdown-live-preview-remove ()
+  (when (buffer-live-p markdown-live-preview-buffer)
+    (kill-buffer markdown-live-preview-buffer))
+  (setq markdown-live-preview-buffer nil)
+  ;; if set to 'delete-on-export, the output has already been deleted
+  (when (eq markdown-live-preview-delete-export 'delete-on-destroy)
+    (let ((outfile-name (markdown-live-preview-get-filename)))
+      (when (and outfile-name (file-exists-p outfile-name))
+        (delete-file outfile-name)))))
+
+(defun markdown-live-preview-after-save-hook ()
+  (when (and (derived-mode-p 'markdown-mode)
+             markdown-live-preview-mode)
+    (unless markdown-live-preview-currently-exporting
+      (if (buffer-live-p markdown-live-preview-buffer)
+          (markdown-live-preview-export)
+        (markdown-display-buffer-other-window
+         (markdown-live-preview-export))))))
+
+(defun markdown-live-preview-kill-buffer-hook ()
+  (cond ((and (derived-mode-p 'markdown-mode)
+              markdown-live-preview-mode)
+         (markdown-live-preview-remove))
+        (markdown-live-preview-source-buffer
+         (with-current-buffer markdown-live-preview-source-buffer
+           (setq markdown-live-preview-buffer nil))
+         (setq markdown-live-preview-source-buffer nil))))
+
+(defun markdown-live-preview-switch-to-output ()
+  "Turn on `markdown-live-preview-mode' and switch to output buffer.
+The output buffer is opened in another window."
+  (interactive)
+  (if markdown-live-preview-mode
+      (markdown-display-buffer-other-window (markdown-live-preview-export)))
+  (markdown-live-preview-mode))
+
+(defun markdown-live-preview-re-export ()
+  "Re-export the current live previewed content.
+If the current buffer is a buffer displaying the exported version of a
+`markdown-live-preview-mode' buffer, call `markdown-live-preview-export' and
+update this buffer's contents."
+  (interactive)
+  (when markdown-live-preview-source-buffer
+    (with-current-buffer markdown-live-preview-source-buffer
+      (markdown-live-preview-export))))
 
 
 (provide 'markdown-mode)
