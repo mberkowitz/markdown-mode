@@ -516,14 +516,12 @@ If this value is \\='any and `display-buffer-alist' is set then
                  (const :tag "Below (horizontal)" below))
   :package-version '(markdown-mode . "2.2"))
 
-;; FIX: replace by a symbol 'eww or 'impatient, to select back-end for live preview,
-(defcustom markdown-live-preview-window-function
-  #'markdown-live-preview-window-eww
-  "Function to display preview of Markdown output within Emacs.
-Function must update the buffer containing the preview and return
-the buffer."
+(defcustom markdown-live-preview-back-end
+  'eww
+  "Set the package that supports live preview of markdown output."
   :group 'markdown
-  :type 'function)
+  :type '(choice (const :tag "eww.el" eww)
+                 (const :tag "impatient.el" impatient)))
 
 (defcustom markdown-live-preview-delete-export 'delete-on-destroy
   "Delete exported HTML file when using `markdown-live-preview-export'.
@@ -10151,9 +10149,9 @@ rows and columns and the column alignment."
 
 
 ;;; Live Preview Mode  ========================================================
-;;;###autoload
-
 ;; FIX: factor-put eww-specific stuff
+
+;;;###autoload
 (define-minor-mode markdown-live-preview-mode
   "Toggle native previewing on save for a specific markdown file."
   :lighter " MD-Preview"
@@ -10235,7 +10233,6 @@ WINDOW-POSNS is provided by `markdown-live-preview-window-serialize'."
 
 (defun markdown-live-preview-window-eww (file)
   "Preview FILE with eww, returning preview buffer.
-To be used with `markdown-live-preview-window-function.
 Called from markdown-live-preview-export."
   (when (and (bound-and-true-p eww-auto-rename-buffer)
              markdown-live-preview-buffer)
@@ -10252,8 +10249,7 @@ Called from markdown-live-preview-export."
 ;;FIX generalize. Split out eww-specific stuff.
 (defun markdown-live-preview-export ()
   "Export to XHTML using `markdown-export'.
- Browse the resulting file within Emacs using
-`markdown-live-preview-window-function'.
+Browse the resulting file within Emacs using eww.
 Return the buffer displaying the rendered output."
   (interactive)
   (let ((filename (markdown-live-preview-get-filename)))
@@ -10267,7 +10263,7 @@ Return the buffer displaying the rendered output."
                markdown-live-preview-buffer)))
         (save-window-excursion
           (let ((output-buffer
-                 (funcall markdown-live-preview-window-function export-file)))
+                 (markdown-live-preview-window-eww export-file)))
             (with-current-buffer output-buffer
               (setq markdown-live-preview-source-buffer cur-buf)
               (add-hook 'kill-buffer-hook
