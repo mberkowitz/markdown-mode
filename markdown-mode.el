@@ -10149,7 +10149,6 @@ rows and columns and the column alignment."
 
 
 ;;; Live Preview Mode  ========================================================
-;; FIX: factor-put eww-specific stuff
 
 ;;;###autoload
 (define-minor-mode markdown-live-preview-mode
@@ -10157,7 +10156,7 @@ rows and columns and the column alignment."
   :lighter " MD-Preview"
   (if markdown-live-preview-mode
       (if (markdown-live-preview-get-filename)
-          (markdown-live-preview-export)
+          (markdown-live-preview-start)
         (markdown-live-preview-mode -1)
         (user-error "Buffer %s does not visit a file" (current-buffer)))
     (markdown-live-preview-remove)))
@@ -10253,37 +10252,58 @@ Called from markdown-live-preview-export."
 Display the output, and return the output buffer."
   (interactive)
   (let ((preview-buf nil)
+        (eww? (eq markdown-live-preview-back-end 'eww))
+        (impatient? (eq markdown-live-preview-back-end 'impatient))
         (filename (markdown-live-preview-get-filename)))
     (when filename
       (let* ((markdown-live-preview-currently-exporting t)
-             (cur-buf (current-buffer))
+             (input-buffer (current-buffer))
              (export-file (markdown-export filename))
-             ;; get positions in all windows currently displaying output buffer
-             (window-data
-              (markdown-live-preview-window-serialize
-               markdown-live-preview-buffer)))
+             (window-data   ;positions in all windows that display output buffer
+              (and eww?
+                   (markdown-live-preview-window-serialize
+                    markdown-live-preview-buffer))))
         (save-window-excursion
           (let ((output-buffer
-                 (markdown-live-preview-window-eww export-file)))
+                 (cond (eww? (markdown-live-preview-window-eww export-file))
+                       ;; fails as markdown-export-kill-buffer is true:
+                       ;; (impatient? (get-file-buffer export-file))
+                       (impatient? (find-file-noselect export-file)))))
             (with-current-buffer output-buffer
-              (setq markdown-live-preview-source-buffer cur-buf)
+              (when impatient? (impatient-mode))
+              (setq markdown-live-preview-source-buffer input-buffer)
               (add-hook 'kill-buffer-hook
                         #'markdown-live-preview-kill-buffer-hook t t))
-            (with-current-buffer cur-buf
+            (with-current-buffer input-buffer
               (setq markdown-live-preview-buffer output-buffer))))
-        (with-current-buffer cur-buf
-          ;; reset all windows displaying output buffer to where they were,
-          ;; now with the new output
-          (mapc #'markdown-live-preview-window-deserialize window-data)
-          ;; delete html editing buffer
-          (let ((buf (get-file-buffer export-file))) (when buf (kill-buffer buf)))
-          (when (and export-file (file-exists-p export-file)
-                     (eq markdown-live-preview-delete-export
-                         'delete-on-export))
-            (delete-file export-file))
-          (setq preview-buf markdown-live-preview-buffer))))
+        (with-current-buffer input-buffer
+          (when window-data
+            ;; reset positions in preview windows
+            (mapc #'markdown-live-preview-window-deserialize window-data))
+          (when eww?                    ; delete html editing buffer
+            (let ((buf (get-file-buffer export-file)))
+              (when buf (kill-buffer buf)))
+            (when (and export-file (file-exists-p export-file)
+                       (eq markdown-live-preview-delete-export 'delete-on-export))
+              (delete-file export-file))))
+        (setq preview-buf markdown-live-preview-buffer)))
     (when preview-buf (markdown-display-buffer-other-window preview-buf))
     preview-buf))
+
+(defun markdown-live-preview-start ()
+  (let ((impatient? (eq markdown-live-preview-back-end 'impatient)))
+    (when impatient?
+      (unless (require 'simple-httpd nil t)
+        (require 'use-package)
+        (use-package simple-httpd :ensure t))
+      (unless (require 'impatient-mode nil t)
+        (require 'use-package)
+        (use-package impatient-mode :ensure t))
+      (or (httpd-running-p) (httpd-start)))
+    (let ((preview-buf (markdown-live-preview-export)))
+      (when impatient?
+        (browse-url (format "http://localhost:8080/imp/live/%s"
+                            (buffer-name preview-buf)))))))
 
 (defun markdown-live-preview-remove ()
   (when (buffer-live-p markdown-live-preview-buffer)
