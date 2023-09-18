@@ -10157,7 +10157,7 @@ rows and columns and the column alignment."
   :lighter " MD-Preview"
   (if markdown-live-preview-mode
       (if (markdown-live-preview-get-filename)
-          (markdown-display-buffer-other-window (markdown-live-preview-export))
+          (markdown-live-preview-export)
         (markdown-live-preview-mode -1)
         (user-error "Buffer %s does not visit a file" (current-buffer)))
     (markdown-live-preview-remove)))
@@ -10246,13 +10246,14 @@ Called from markdown-live-preview-export."
                return buf)
     (get-buffer "*eww*")))
 
+
 ;;FIX generalize. Split out eww-specific stuff.
 (defun markdown-live-preview-export ()
   "Export to XHTML using `markdown-export'.
-Browse the resulting file within Emacs using eww.
-Return the buffer displaying the rendered output."
+Display the output, and return the output buffer."
   (interactive)
-  (let ((filename (markdown-live-preview-get-filename)))
+  (let ((preview-buf nil)
+        (filename (markdown-live-preview-get-filename)))
     (when filename
       (let* ((markdown-live-preview-currently-exporting t)
              (cur-buf (current-buffer))
@@ -10280,7 +10281,9 @@ Return the buffer displaying the rendered output."
                      (eq markdown-live-preview-delete-export
                          'delete-on-export))
             (delete-file export-file))
-          markdown-live-preview-buffer)))))
+          (setq preview-buf markdown-live-preview-buffer))))
+    (when preview-buf (markdown-display-buffer-other-window preview-buf))
+    preview-buf))
 
 (defun markdown-live-preview-remove ()
   (when (buffer-live-p markdown-live-preview-buffer)
@@ -10296,10 +10299,7 @@ Return the buffer displaying the rendered output."
   (when (and (derived-mode-p 'markdown-mode)
              markdown-live-preview-mode)
     (unless markdown-live-preview-currently-exporting
-      (if (buffer-live-p markdown-live-preview-buffer)
-          (markdown-live-preview-export)
-        (markdown-display-buffer-other-window
-         (markdown-live-preview-export))))))
+      (markdown-live-preview-export))))
 
 (defun markdown-live-preview-kill-buffer-hook ()
   (cond ((and (derived-mode-p 'markdown-mode)
@@ -10314,9 +10314,8 @@ Return the buffer displaying the rendered output."
   "Turn on `markdown-live-preview-mode' and switch to output buffer.
 The output buffer is opened in another window."
   (interactive)
-  (if markdown-live-preview-mode
-      (markdown-display-buffer-other-window (markdown-live-preview-export)))
-  (markdown-live-preview-mode))
+  (markdown-live-preview-mode 1)
+  (markdown-live-preview-export))
 
 (defun markdown-live-preview-re-export ()
   "Re-export the current live previewed content.
