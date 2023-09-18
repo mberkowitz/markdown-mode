@@ -7163,37 +7163,38 @@ Detail: https://github.com/jrblevin/markdown-mode/pull/590"
       (goto-char (point-min))
       (insert "a test ")
       (markdown-live-preview-export)
-      (let (final-pt final-win-st-diff)
-        ;; test that still starts at point-min
-        (with-selected-window (get-buffer-window markdown-live-preview-buffer)
-          (should (= (window-point) 1))
-          (should (= (markdown-visual-lines-between-points
-                      (window-start) (window-point))
-                     0))
-          (set-window-point (selected-window) (point-max))
-          (setq final-pt (window-point)
-                final-win-st-diff (markdown-visual-lines-between-points
-                                   (window-start) (window-point))))
-        (goto-char (point-min))
-        (insert "this is ")
-        (markdown-live-preview-export)
-        (with-selected-window (get-buffer-window markdown-live-preview-buffer)
-          (should (= (window-point) (+ final-pt (length "this is "))))
-          (should (= (markdown-visual-lines-between-points
-                      (window-start) (window-point))
-                     final-win-st-diff))
-          ;; test that still starts at point-max, with correct line difference
-          (goto-char (floor (/ (float (- (point-max) (point-min))) 2)))
-          (setq final-pt (window-point)
-                final-win-st-diff (markdown-visual-lines-between-points
-                                   (window-start) final-pt)))
-        (markdown-live-preview-export)
-        ;; test that still starts at same point, with correct line difference
-        (with-selected-window (get-buffer-window markdown-live-preview-buffer)
-          (should (= (window-point) final-pt))
-          (should (= (markdown-visual-lines-between-points
-                      (window-start) (window-point))
-                     final-win-st-diff)))))))
+      (when (eq markdown-live-preview-back-end 'eww)
+        (let (final-pt final-win-st-diff)
+          ;; test that still starts at point-min
+          (with-selected-window (get-buffer-window markdown-live-preview-buffer)
+            (should (= (window-point) 1))
+            (should (= (markdown-visual-lines-between-points
+                        (window-start) (window-point))
+                       0))
+            (set-window-point (selected-window) (point-max))
+            (setq final-pt (window-point)
+                  final-win-st-diff (markdown-visual-lines-between-points
+                                     (window-start) (window-point))))
+          (goto-char (point-min))
+          (insert "this is ")
+          (markdown-live-preview-export)
+          (with-selected-window (get-buffer-window markdown-live-preview-buffer)
+            (should (= (window-point) (+ final-pt (length "this is "))))
+            (should (= (markdown-visual-lines-between-points
+                        (window-start) (window-point))
+                       final-win-st-diff))
+            ;; test that still starts at point-max, with correct line difference
+            (goto-char (floor (/ (float (- (point-max) (point-min))) 2)))
+            (setq final-pt (window-point)
+                  final-win-st-diff (markdown-visual-lines-between-points
+                                     (window-start) final-pt)))
+          (markdown-live-preview-export)
+          ;; test that still starts at same point, with correct line difference
+          (with-selected-window (get-buffer-window markdown-live-preview-buffer)
+            (should (= (window-point) final-pt))
+            (should (= (markdown-visual-lines-between-points
+                        (window-start) (window-point))
+                       final-win-st-diff))))))))
 
 (when (version< "29" emacs-version)
   (ert-deftest test-markdown-live-preview/eww-auto-rename-buffer ()
