@@ -10245,8 +10245,10 @@ Called from markdown-live-preview-export."
                return buf)
     (get-buffer "*eww*")))
 
+(declare-function httpd-start "simple-httpd")
+(declare-function httpd-running-p "simple-httpd")
+(declare-function impatient-mode "impatient-mode")
 
-;;FIX generalize. Split out eww-specific stuff.
 (defun markdown-live-preview-export ()
   "Export to XHTML using `markdown-export'.
 Display the output, and return the output buffer."
