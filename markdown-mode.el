@@ -10293,12 +10293,11 @@ Display the output, and return the output buffer."
 (defun markdown-live-preview-start ()
   (let ((impatient? (eq markdown-live-preview-back-end 'impatient)))
     (when impatient?
-      (unless (require 'simple-httpd nil t)
-        (require 'use-package)
-        (use-package simple-httpd :ensure t))
-      (unless (require 'impatient-mode nil t)
-        (require 'use-package)
-        (use-package impatient-mode :ensure t))
+      (unless (and (require 'simple-httpd nil t)
+                   (require 'impatient-mode nil t))
+        (error (concat
+                "Setting markdown-live-preview-back-end to 'impatient "
+                "requires packages 'simple-httpd and 'impatient-mode")))
       (or (httpd-running-p) (httpd-start)))
     (let ((preview-buf (markdown-live-preview-export)))
       (when impatient?
