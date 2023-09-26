@@ -10289,7 +10289,8 @@ Display the output, and return the output buffer."
                        (eq markdown-live-preview-delete-export 'delete-on-export))
               (delete-file export-file))))
         (setq preview-buf markdown-live-preview-buffer)))
-    (when preview-buf (markdown-display-buffer-other-window preview-buf))
+    (when (and eww? preview-buf)
+      (markdown-display-buffer-other-window preview-buf))
     preview-buf))
 
 (defun markdown-live-preview-start ()
